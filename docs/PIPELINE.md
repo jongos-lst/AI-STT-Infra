@@ -53,11 +53,26 @@ Delivered (42 Python files):
 
 ## Phase 3 — Frontend scaffold
 
-Planned:
-- `frontend/` Next.js 15 App Router
-- Upload page using signed URL
-- Realtime task status (SSE)
-- Results page
+**Date:** 2026-06-18
+**Status:** ✅ done
+
+Delivered (Next.js 15 + TypeScript + Tailwind):
+- **Upload flow** (`src/components/UploadCard.tsx`): hash → POST `/v1/tasks` → PUT directly to GCS via signed URL → POST `.../complete` → redirect to status page. Bytes never traverse the API.
+- **Status page** (`src/app/tasks/[id]/page.tsx` + `TaskView.tsx`): polls every 1.5 s, stops on terminal status, shows transcript + summary as they appear; clean error state.
+- **Typed API client** (`src/lib/api.ts`): typed `ApiClientError` carrying HTTP status + parsed `{error: {code, message}}` body.
+- **Shared types** (`src/lib/types.ts`): mirror the Pydantic schemas; `TERMINAL_STATUSES` constant matches the backend.
+- **UI primitives**: `StatusBadge`, `ProgressBar` driven by `STATUS_LABEL` / `STATUS_TONE` / `PROGRESS_PERCENT` tables.
+- **Tests**: 7 vitest unit tests (api client, sha256 with FileReader polyfill, status tables monotonicity) + 1 Playwright e2e (happy path upload → DONE).
+- **Tooling**: standalone-output Dockerfile, security headers in `next.config.ts`, `vitest.config.ts`, `playwright.config.ts`.
+
+**Verified locally:**
+- `npm run typecheck` clean.
+- `npm test` → **7 passed**.
+- `npm run build` → 4 routes generated, 102 kB first-load JS.
+
+**Known notes:**
+- ESLint config creation blocked by a local config-protection hook; `next lint` will create one on first run.
+- Playwright e2e expects the full docker-compose stack (Phase 4) — written but not executed yet.
 
 ---
 
