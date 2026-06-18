@@ -163,6 +163,22 @@ Planned:
 
 ## Phase 9 — Demo & deck
 
-Planned:
-- `docs/demo-script.md` (how to run the demo end-to-end).
-- Outline for an interview slide deck (under `docs/deck.md`).
+**Date:** 2026-06-18
+**Status:** ✅ done — final phase
+
+Delivered:
+- `docs/demo-script.md` — 10-minute live demo broken into 7 acts (setup off-camera → frame the problem → live upload → state machine → observability → CI/CD → tradeoffs → close), with explicit recovery moves if something breaks on stage.
+- `docs/deck.md` — 15-slide outline for the interview presentation: cover, problem-in-a-sentence, three system diagrams, state machine, sequence diagram, scaling story, fault tolerance, multi-region topology, observability, CI/CD, tradeoffs (3 ADRs), what I'd build next, demo handoff, prepared Q&A answers.
+- `README.md` rewritten as a real entry point — what's here, architecture-in-one-minute, the 8 invariants, stack at a glance, develop quickstart, deliberate non-goals.
+
+---
+
+## Final state
+
+- **9 phases · 10 commits on `main` · pushed to GitHub.**
+- **Tests:** 40 backend (26 unit + 6 provider contracts + 8 integration) + 7 frontend vitest + 1 live Playwright e2e = **48 passing**.
+- **Infra:** 10 Terraform modules, 3 envs all `validate` clean.
+- **CI/CD:** 8 workflows, all `actionlint` clean.
+- **Docs:** ARCHITECTURE (8 Mermaid diagrams) + CLAUDE + PIPELINE + 5 runbooks + demo + deck + READMEs.
+
+Pipeline log will be amended as the system evolves. The repository is in a state where a new collaborator can `git clone && docker compose up` and have the full stack reach DONE in under two minutes.
