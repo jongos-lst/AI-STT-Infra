@@ -35,7 +35,10 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      # npm install (not ci) — works around https://github.com/npm/cli/issues/4828
+      # where ci skips the platform-specific optional native binaries that
+      # vitest's rollup native imports require at runtime.
+      - run: npm install --no-fund --no-audit
 
       - name: Typecheck
         run: npm run typecheck
