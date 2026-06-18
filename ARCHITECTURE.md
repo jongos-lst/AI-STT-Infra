@@ -8,92 +8,136 @@
 
 ## 1. System Architecture
 
+> Two views: the **request path** (what a user touches) and the **async pipeline** (what processes the task). Separating them keeps each diagram readable.
+
+### 1a. Request path — user → API
+
 ```mermaid
 flowchart LR
-  subgraph Client
-    U[Browser / Mobile]
+  U([User browser])
+
+  subgraph Edge["🌐 Edge (global)"]
+    direction TB
+    LB["Global HTTPS LB<br/>+ Cloud Armor WAF"]
+    CDN["Cloud CDN"]
   end
 
-  subgraph Edge[GCP Edge]
-    CDN[Cloud CDN]
-    LB[Global HTTPS LB + Cloud Armor]
+  subgraph Compute["⚡ Cloud Run (multi-region)"]
+    direction TB
+    FE["Next.js 15<br/>Frontend"]
+    API["FastAPI<br/>Gateway"]
   end
 
-  subgraph Frontend[Next.js on Cloud Run]
-    FE[Next.js 15 App Router]
+  subgraph Sync["💾 Sync data plane"]
+    direction TB
+    PG[("Cloud SQL<br/>Postgres HA")]
+    RC[("Memorystore<br/>Redis")]
+    GCS[("GCS<br/>audio + transcripts")]
   end
 
-  subgraph API[FastAPI on Cloud Run multi-region]
-    GW[API Gateway / FastAPI]
+  Outbox[["Outbox table<br/>→ Pub/Sub"]]:::ghost
+
+  U -- 1 page --> CDN --> FE
+  U -- 2 API call --> LB --> API
+  U == 3 PUT audio (signed URL) ==> GCS
+
+  API -- read/write --> PG
+  API -- cache --> RC
+  API -- sign URL --> GCS
+  API -. tx-local write .-> Outbox
+
+  classDef ghost fill:#fff,stroke:#999,stroke-dasharray:4 3,color:#555;
+  linkStyle 2 stroke:#1f7a1f,stroke-width:3px;
+```
+
+**Read it as:** ① static assets come from CDN, ② API calls hit the global LB, ③ audio bytes go **directly** to GCS via a signed URL — they never traverse the API. The dashed Outbox is the bridge to diagram 1b.
+
+### 1b. Async pipeline — Pub/Sub → workers → providers
+
+```mermaid
+flowchart LR
+  Outbox[["Outbox sweeper"]]:::ghost
+
+  subgraph Q1["📨 Stage 1 queue"]
+    T1[/"topic: stt.requested"/]
   end
 
-  subgraph Async[Async pipeline]
-    PS[(Pub/Sub: stt.requested)]
-    PS2[(Pub/Sub: llm.requested)]
-    DLQ[(Pub/Sub DLQ)]
-    STTW[STT Worker - Cloud Run Jobs]
-    LLMW[LLM Worker - Cloud Run Jobs]
+  STT["STT Worker<br/>Cloud Run"]
+
+  subgraph Q2["📨 Stage 2 queue"]
+    T2[/"topic: llm.requested"/]
   end
 
-  subgraph Providers[Pluggable AI providers]
-    P1[OpenAI Whisper]
-    P2[OpenAI GPT-4o-mini]
-    P3[Vertex AI - optional]
-    P4[Mock providers]
+  LLM["LLM Worker<br/>Cloud Run"]
+
+  DLQ(["Dead-letter<br/>topic"]):::dlq
+
+  subgraph Providers["🔌 Pluggable provider ports"]
+    direction TB
+    SP["STTProvider<br/>• OpenAI Whisper<br/>• Vertex Chirp<br/>• Mock"]
+    LP["LLMProvider<br/>• GPT-4o-mini<br/>• Gemini<br/>• Mock"]
   end
 
-  subgraph Data[Stateful layer]
-    GCS[(GCS: audio + transcripts)]
-    PG[(Cloud SQL Postgres HA)]
-    RC[(Memorystore Redis)]
+  subgraph State["💾 Persistence"]
+    direction TB
+    PG2[("Postgres")]
+    GCS2[("GCS")]
+    RC2[("Redis")]
   end
 
-  subgraph Obs[Observability]
-    OT[OpenTelemetry Collector]
-    CL[Cloud Logging]
-    CM[Cloud Monitoring]
-    AL[Alert Policies + PagerDuty]
+  Outbox --> T1 --> STT
+  STT --> SP
+  STT -- transcript --> GCS2
+  STT -- status + transcript --> PG2
+  STT -- publish next --> T2
+
+  T2 --> LLM
+  LLM --> LP
+  LLM -- summary --> PG2
+  LLM -- stream tokens --> RC2
+
+  T1 -. 5 nacks .-> DLQ
+  T2 -. 5 nacks .-> DLQ
+
+  classDef ghost fill:#fff,stroke:#999,stroke-dasharray:4 3,color:#555;
+  classDef dlq fill:#ffe5e5,stroke:#c33;
+```
+
+**Read it as:** outbox publishes → STT worker consumes, calls a provider, writes results, then publishes to the LLM topic → LLM worker consumes, summarizes, persists. Either stage drops to DLQ after 5 failures.
+
+### 1c. Cross-cutting — security & observability
+
+```mermaid
+flowchart LR
+  subgraph App["All services (FE / API / STT / LLM)"]
+    A1[Service]
   end
 
-  subgraph Sec[Security]
-    SM[Secret Manager]
-    IAM[IAM + Workload Identity]
+  subgraph Sec["🔐 Security"]
+    direction TB
+    SM["Secret Manager"]
+    IAM["IAM + Workload Identity"]
+    AR["Cloud Armor"]
   end
 
-  U --> CDN --> LB --> FE
-  U --> LB --> GW
+  subgraph Obs["📊 Observability"]
+    direction TB
+    OT["OpenTelemetry SDK<br/>(traces + metrics + logs)"]
+    CL["Cloud Logging"]
+    CT["Cloud Trace"]
+    CM["Cloud Monitoring"]
+    AL["Alerts<br/>→ PagerDuty / Slack"]
+  end
 
-  GW -- signed URL --> GCS
-  U -- PUT audio --> GCS
-  GW --> PG
-  GW --> RC
-  GW --> PS
+  A1 -- assume identity --> IAM
+  A1 -- fetch keys --> SM
+  AR -. WAF .-> A1
 
-  PS --> STTW --> P1
-  STTW --> P4
-  STTW --> PG
-  STTW --> GCS
-  STTW --> PS2
-
-  PS2 --> LLMW --> P2
-  LLMW --> P3
-  LLMW --> P4
-  LLMW --> PG
-  LLMW --> RC
-
-  PS -. nack 5x .-> DLQ
-  PS2 -. nack 5x .-> DLQ
-
-  GW --> OT
-  STTW --> OT
-  LLMW --> OT
+  A1 --> OT
   OT --> CL
+  OT --> CT
   OT --> CM
   CM --> AL
-
-  GW -.-> SM
-  STTW -.-> SM
-  LLMW -.-> SM
 ```
 
 ### Logical boundaries
@@ -252,51 +296,117 @@ sequenceDiagram
 
 ### 5.1 Topology
 
+Three environments, **identical Terraform modules**, different tfvars. Diagrams kept separate so each is readable.
+
+#### Dev — laptop, docker-compose
+
 ```mermaid
-flowchart TB
-  subgraph Dev[Dev - local laptop]
-    DC[docker-compose: Postgres, Redis, PubSub emulator, GCS emulator, mock STT, mock LLM, API, FE]
+flowchart LR
+  DEV([Developer])
+  subgraph Compose["docker-compose"]
+    direction TB
+    LFE[Next.js dev server]
+    LAPI[FastAPI uvicorn --reload]
+    LSTT[STT worker]
+    LLLM[LLM worker]
+    LPG[(Postgres 16)]
+    LRC[(Redis)]
+    LPS[(Pub/Sub emulator)]
+    LGCS[(fake-gcs-server)]
+    LMOCK["Mock STT + LLM HTTP server"]
   end
-
-  subgraph Stg[Staging GCP project]
-    Stg_LB[Global LB] --> Stg_FE[FE Cloud Run] & Stg_API[API Cloud Run]
-    Stg_API --> Stg_PG[(Cloud SQL)] & Stg_RC[(Redis)] & Stg_PS[(Pub/Sub)]
-    Stg_PS --> Stg_STT[STT worker] & Stg_LLM[LLM worker]
-  end
-
-  subgraph Prod[Prod GCP project - multi-region]
-    Prod_LB[Global LB + Cloud Armor + CDN]
-    Prod_LB --> Prod_AE[asia-east1 FE+API]
-    Prod_LB --> Prod_US[us-central1 FE+API]
-    Prod_AE --> Prod_PG[(Cloud SQL HA primary asia-east1)]
-    Prod_US --> Prod_PG
-    Prod_PG -. async replica .-> Prod_PG_R[(Read replica us-central1)]
-    Prod_AE --> Prod_PS[(Pub/Sub - global)]
-    Prod_US --> Prod_PS
-  end
+  DEV --> LFE
+  DEV --> LAPI
+  LAPI --> LPG & LRC & LPS & LGCS
+  LPS --> LSTT & LLLM
+  LSTT --> LMOCK
+  LLLM --> LMOCK
 ```
 
-Environment promotion: **Dev (laptop) → Staging (small GCP project, real services) → Prod (multi-region GCP project)**. Identical Terraform modules, per-env tfvars.
+#### Staging — single GCP project, single region (`asia-east1`)
+
+```mermaid
+flowchart LR
+  U([User / engineer])
+  subgraph Stg["GCP project: ai-stt-staging"]
+    direction TB
+    SLB[Global LB] --> SFE[FE Cloud Run]
+    SLB --> SAPI[API Cloud Run]
+    SAPI --> SPG[(Cloud SQL zonal)]
+    SAPI --> SRC[(Redis basic 1 GB)]
+    SAPI --> SPS[/Pub/Sub topics/]
+    SPS --> SSTT[STT worker]
+    SPS --> SLLM[LLM worker]
+  end
+  U --> SLB
+```
+
+#### Prod — multi-region active-active
+
+```mermaid
+flowchart TB
+  U([Users — global])
+  LB["Global HTTPS LB<br/>Cloud Armor + Cloud CDN"]
+  U --> LB
+
+  subgraph RegionA["🌏 asia-east1"]
+    direction TB
+    FE_A[FE Cloud Run<br/>min=2]
+    API_A[API Cloud Run<br/>min=2]
+    STT_A[STT worker<br/>min=1]
+    LLM_A[LLM worker<br/>min=1]
+  end
+
+  subgraph RegionB["🌎 us-central1"]
+    direction TB
+    FE_B[FE Cloud Run<br/>min=2]
+    API_B[API Cloud Run<br/>min=2]
+    STT_B[STT worker<br/>min=1]
+    LLM_B[LLM worker<br/>min=1]
+  end
+
+  LB --> FE_A & API_A
+  LB --> FE_B & API_B
+
+  subgraph Shared["☁️ Shared regional data plane"]
+    direction LR
+    PG_P[(Cloud SQL HA<br/>primary @ asia-east1)]
+    PG_R[(Read replica<br/>@ us-central1)]
+    PS[(Pub/Sub — global)]
+    GCS[(GCS<br/>dual-region)]
+    RC[(Memorystore<br/>regional)]
+    PG_P -. async replica .-> PG_R
+  end
+
+  API_A --> PG_P & RC & GCS & PS
+  API_B --> PG_R & RC & GCS & PS
+  STT_A --> PS
+  STT_B --> PS
+  LLM_A --> PS
+  LLM_B --> PS
+```
+
+**Promotion path:** Dev → Staging (auto on merge) → Prod (manual gate + canary).
 
 ### 5.2 CI/CD
 
 ```mermaid
 flowchart LR
-  Dev[Developer push / PR] --> A1[GitHub Actions]
-  A1 --> L[Lint: ruff, mypy, eslint, tsc]
-  L --> T[Test: pytest, vitest]
-  T --> SCA[Security: pip-audit, npm audit, trivy, gitleaks]
-  SCA --> B[Build container images]
-  B --> P[Push to Artifact Registry - signed with cosign]
-  P --> TF[terraform plan - PR comment]
-  TF -- merge to main --> DS[Deploy Staging via OIDC]
-  DS --> E2E[Playwright e2e against staging]
-  E2E --> Tag[Git tag vX.Y.Z]
-  Tag --> Gate{Manual approval}
-  Gate -- approve --> CAN[Canary 10% prod traffic]
-  CAN --> Watch[Auto-watch error rate + p95 - 10 min]
-  Watch -- healthy --> Full[Promote to 100%]
-  Watch -- regression --> RB[Auto rollback via traffic split]
+  Dev(["Developer<br/>push / PR"]) --> A1["GitHub Actions"]
+  A1 --> L["Lint<br/>ruff · mypy · eslint · tsc"]
+  L --> T["Test<br/>pytest · vitest"]
+  T --> SCA["Security scan<br/>pip-audit · npm audit<br/>trivy · gitleaks"]
+  SCA --> B["Build images"]
+  B --> P["Push to Artifact Registry<br/>signed via cosign"]
+  P --> TF["terraform plan<br/>(PR comment)"]
+  TF -- merge to main --> DS["Deploy staging<br/>via OIDC"]
+  DS --> E2E["Playwright e2e<br/>vs staging"]
+  E2E --> Tag["Git tag vX.Y.Z"]
+  Tag --> Gate{"Manual<br/>approval"}
+  Gate -- approve --> CAN["Canary<br/>10% prod traffic"]
+  CAN --> Watch["Watch SLOs<br/>10 min window"]
+  Watch -- healthy --> Full["Promote 100%"]
+  Watch -- regression --> RB["Auto rollback<br/>(traffic split)"]
 ```
 
 ### 5.3 Versioning, release & rollback
