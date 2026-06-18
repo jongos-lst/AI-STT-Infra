@@ -59,7 +59,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov ruff mypy
+          pip install pytest pytest-asyncio pytest-cov respx faker ruff mypy
 
       - name: Ruff
         run: ruff check .
@@ -73,7 +73,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_stt
         run: alembic upgrade head
 
-      - name: Pytest (unit + coverage)
+      - name: Pytest unit + provider contracts
         env:
           APP_ENV: dev
           AUTH_DISABLED: "true"
@@ -81,7 +81,17 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           STT_PROVIDER: mock
           LLM_PROVIDER: mock
-        run: pytest tests/unit -v --cov=app --cov-report=xml --cov-report=term
+        run: pytest tests/unit tests/providers -v --cov=app --cov-report=xml --cov-report=term
+
+      - name: Pytest integration (repo + DB + state machine)
+        env:
+          APP_ENV: dev
+          AUTH_DISABLED: "true"
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_stt
+          REDIS_URL: redis://localhost:6379/0
+        # Skip end-to-end (needs the full compose stack); repo + DB tests are
+        # enough at this layer.
+        run: pytest tests/integration/test_repository.py -v --cov=app --cov-append --cov-report=xml --cov-report=term
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

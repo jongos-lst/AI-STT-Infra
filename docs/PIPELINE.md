@@ -141,8 +141,23 @@ Planned:
 
 ## Phase 8 — Tests
 
-Planned:
-- pytest unit + integration, contract tests for providers, vitest + playwright on frontend, k6 smoke for load.
+**Date:** 2026-06-18
+**Status:** ✅ done — backend 40 / frontend 7 vitest + Playwright e2e green
+
+| Tier | Count | Notes |
+|---|---|---|
+| Backend unit                  | 26 | state machine, task entity, mock providers, metrics with `InMemoryMetricReader` |
+| Backend provider contracts    | **6 new** | OpenAI Whisper + GPT-4o-mini adapters via `respx` — verifies response parsing, retry behaviour, 4xx/5xx → `ProviderError` mapping, streaming SSE chunks |
+| Backend integration           | **8 new** | repository CRUD, **tenant isolation** (wrong tenant → `NotFoundError`), state transitions across the wire, transcript UPSERT idempotency, outbox row visible to sweeper SELECT, full POST /v1/tasks → GCS → complete → DONE through the gateway |
+| Frontend unit (vitest)        | 7 | api client, sha256, status tables |
+| Frontend e2e (Playwright)     | **1 live** | runs against `localhost:3000`, walks the upload flow in Chromium, asserts the status badge flips to "Done" and the summary panel renders |
+
+**CI**: `backend-ci.yml` now runs unit + provider + integration repository tests against the existing Postgres + Redis service containers. End-to-end integration is reserved for the staging e2e job (`e2e.yml`).
+
+**Fixes during this phase:**
+- `pyproject.toml` now declares the `integration` marker, sets `asyncio_default_*_loop_scope = "session"` so async DB connections survive cross-test cleanup.
+- `e2e/upload.spec.ts`: tightened locator to dodge Playwright strict-mode (Status badge "Done" matched the same text in the Summary panel).
+- Whisper test patches `app.infra.gcs.open_for_read` (the source module) rather than the lazy import inside the adapter.
 
 ---
 

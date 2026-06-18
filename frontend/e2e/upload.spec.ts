@@ -20,5 +20,8 @@ test("audio upload reaches DONE", async ({ page }) => {
   await page.getByRole("button", { name: /Process audio/ }).click();
   await page.waitForURL(/\/tasks\/[0-9a-f-]+$/);
 
-  await expect(page.getByText(/Done|Summary/, { exact: false })).toBeVisible({ timeout: 60_000 });
+  // Status badge flips to "Done" when the pipeline finishes.
+  await expect(page.getByText("Done", { exact: true })).toBeVisible({ timeout: 60_000 });
+  // Summary panel appears once the LLM stage writes its row.
+  await expect(page.getByRole("heading", { name: /Summary/ }).or(page.getByText("Summary", { exact: true }))).toBeVisible();
 });
