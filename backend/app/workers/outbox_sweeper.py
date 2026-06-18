@@ -10,6 +10,7 @@ import datetime as _dt
 from sqlalchemy import select, update
 
 from app.core.logging import get_logger, setup_logging
+from app.core.metrics import outbox_lag_seconds
 from app.core.observability import init_telemetry
 from app.infra.db import session_scope
 from app.infra.models import OutboxRow
@@ -35,10 +36,13 @@ async def sweep_once(batch_size: int = 200) -> int:
 
         for r in rows:
             try:
+                now = _dt.datetime.now(tz=_dt.timezone.utc)
+                lag = (now - r.created_at).total_seconds()
                 msg_id = publish(r.topic, r.payload, attributes=r.attributes)
-                log.info("outbox.published", outbox_id=r.id, topic=r.topic, message_id=msg_id)
+                outbox_lag_seconds.record(lag, attributes={"topic": r.topic})
+                log.info("outbox.published", outbox_id=r.id, topic=r.topic, message_id=msg_id, lag_seconds=lag)
                 await s.execute(
-                    update(OutboxRow).where(OutboxRow.id == r.id).values(published_at=_dt.datetime.now(tz=_dt.timezone.utc))
+                    update(OutboxRow).where(OutboxRow.id == r.id).values(published_at=now)
                 )
                 sent += 1
             except Exception as e:  # noqa: BLE001

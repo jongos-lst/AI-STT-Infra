@@ -76,7 +76,14 @@ class Task:
         )
 
     def move_to(self, target: TaskStatus, *, error: str | None = None) -> None:
+        prev = self.status
         self.status = transition(self.status, target)
         self.updated_at = datetime.now(timezone.utc)
         if error is not None:
             self.error = error
+        # Late import so the metrics module is optional (e.g. for cold scripts).
+        try:
+            from app.core.metrics import record_transition
+            record_transition(prev.value, self.status.value)
+        except Exception:  # noqa: BLE001
+            pass

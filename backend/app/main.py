@@ -16,10 +16,32 @@ from app.core.observability import init_telemetry
 log = get_logger(__name__)
 
 
+def _auto_instrument(app: FastAPI) -> None:
+    """Attach OTel auto-instrumentations. Each call is best-effort —
+    missing libs in dev shouldn't keep the app from booting."""
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        FastAPIInstrumentor.instrument_app(app, excluded_urls="healthz,readyz")
+    except Exception as e:  # noqa: BLE001
+        log.warning("otel.fastapi.skipped", error=str(e))
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+        from app.infra.db import engine as _engine
+        SQLAlchemyInstrumentor().instrument(engine=_engine.sync_engine)
+    except Exception as e:  # noqa: BLE001
+        log.warning("otel.sqlalchemy.skipped", error=str(e))
+    try:
+        from opentelemetry.instrumentation.redis import RedisInstrumentor
+        RedisInstrumentor().instrument()
+    except Exception as e:  # noqa: BLE001
+        log.warning("otel.redis.skipped", error=str(e))
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     setup_logging()
     init_telemetry("ai-stt-api")
+    _auto_instrument(_app)
     log.info("api.startup", env=settings.app_env, version=__version__)
     yield
     log.info("api.shutdown")

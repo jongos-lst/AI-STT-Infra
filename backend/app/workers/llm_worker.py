@@ -7,6 +7,12 @@ from fastapi import FastAPI, Request
 from opentelemetry import trace
 
 from app.core.logging import get_logger, setup_logging
+from app.core.metrics import (
+    provider_latency_seconds,
+    record_provider_error,
+    task_duration_seconds,
+    time_block,
+)
 from app.core.observability import extract_trace_context, init_telemetry, tracer
 from app.domain.task import TaskStatus
 from app.infra.db import session_scope
@@ -30,7 +36,8 @@ async def healthz() -> dict[str, str]:
 async def handle(req: Request) -> dict[str, str]:
     msg = await parse_push(req)
     ctx = extract_trace_context(msg.attributes)
-    with tracer().start_as_current_span("llm.process", context=ctx, kind=trace.SpanKind.CONSUMER):
+    with tracer().start_as_current_span("llm.process", context=ctx, kind=trace.SpanKind.CONSUMER), \
+         time_block(task_duration_seconds, {"stage": "llm"}):
         task_id = UUID(msg.data["task_id"])
         attempt_id = f"d{msg.delivery_attempt}-m{msg.message_id}"
 
@@ -50,7 +57,12 @@ async def handle(req: Request) -> dict[str, str]:
                 await repo.update_status(task_id, TaskStatus.LLM_RUNNING)
 
             llm = get_llm_provider()
-            result = await llm.summarize(transcript_text)
+            with time_block(provider_latency_seconds, {"provider": llm.name, "kind": "llm"}):
+                try:
+                    result = await llm.summarize(transcript_text)
+                except Exception:
+                    record_provider_error(llm.name, "llm")
+                    raise
 
             async with session_scope() as s:
                 repo = TaskRepository(s)

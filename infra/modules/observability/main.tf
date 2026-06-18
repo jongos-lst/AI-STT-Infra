@@ -76,6 +76,71 @@ resource "google_monitoring_alert_policy" "api_5xx" {
   notification_channels = [google_monitoring_notification_channel.email.id]
 }
 
+resource "google_monitoring_alert_policy" "task_failed_rate" {
+  project      = var.project_id
+  display_name = "${var.name} task FAILED rate > 5% for 10m"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "FAILED transition count"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${var.name}/log_errors\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 5
+      duration        = "600s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_RATE"
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email.id]
+}
+
+resource "google_monitoring_alert_policy" "outbox_lag" {
+  project      = var.project_id
+  display_name = "${var.name} outbox publish lag p95 > 30s"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "outbox.lag p95"
+    condition_threshold {
+      filter          = "metric.type=\"workload.googleapis.com/outbox.lag\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 30
+      duration        = "300s"
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_PERCENTILE_95"
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email.id]
+}
+
+resource "google_monitoring_alert_policy" "provider_errors" {
+  project      = var.project_id
+  display_name = "${var.name} provider errors > 0 for 5m"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "provider.errors"
+    condition_threshold {
+      filter          = "metric.type=\"workload.googleapis.com/provider.errors\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "300s"
+      aggregations {
+        alignment_period     = "60s"
+        per_series_aligner   = "ALIGN_RATE"
+        cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = ["metric.label.provider"]
+      }
+    }
+  }
+  notification_channels = [google_monitoring_notification_channel.email.id]
+}
+
 resource "google_monitoring_alert_policy" "cloud_sql_cpu" {
   project      = var.project_id
   display_name = "${var.name} Cloud SQL CPU > 80% for 10m"
