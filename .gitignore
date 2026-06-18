@@ -41,7 +41,8 @@ next-env.d.ts
 *.tfstate.*
 *.tfvars
 !*.tfvars.example
-.terraform.lock.hcl
+# .terraform.lock.hcl IS committed at env granularity, but ignore strays elsewhere.
+infra/**/.terraform.lock.hcl.bak
 
 # IDE
 .vscode/

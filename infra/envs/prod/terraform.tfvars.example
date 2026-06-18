@@ -1,0 +1,8 @@
+project_id              = "ai-stt-prod"
+primary_region          = "asia-east1"
+secondary_region        = "us-central1"
+host                    = "ai-stt.example.com"
+artifact_repo           = "asia-east1-docker.pkg.dev/ai-stt-shared/ai-stt"
+image_tag               = "latest"
+notification_email      = "oncall@example.com"
+gcs_dual_region_location = "ASIA"

@@ -1,0 +1,6 @@
+project_id         = "ai-stt-staging"
+region             = "asia-east1"
+host               = "stg.ai-stt.example.com"
+artifact_repo      = "asia-east1-docker.pkg.dev/ai-stt-shared/ai-stt"
+image_tag          = "latest"   # overridden by CI
+notification_email = "oncall@example.com"

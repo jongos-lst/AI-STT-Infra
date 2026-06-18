@@ -1,0 +1,5 @@
+project_id        = "ai-stt-shared"
+region            = "asia-east1"
+state_bucket_name = "ai-stt-tfstate"
+github_owner      = "jongos-lst"
+github_repo       = "AI-STT-Infra"
