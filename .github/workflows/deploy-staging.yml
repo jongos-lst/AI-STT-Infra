@@ -1,0 +1,84 @@
+name: deploy-staging
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "ARCHITECTURE.md"
+      - "CLAUDE.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  apply:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: staging   # GitHub env protection rules apply here
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID_STAGING }}
+      TF_VAR_host:               ${{ vars.STAGING_HOST }}
+      TF_VAR_artifact_repo:      ${{ vars.ARTIFACT_REPO }}
+      TF_VAR_image_tag:          ${{ needs.build.outputs.image_tag }}
+      TF_VAR_notification_email: ${{ vars.NOTIFICATION_EMAIL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - run: terraform -chdir=infra/envs/staging init
+      - run: terraform -chdir=infra/envs/staging apply -auto-approve
+
+      - name: Run Alembic migrations on Cloud SQL
+        run: |
+          gcloud run jobs deploy ai-stt-migrate \
+            --region=${{ vars.STAGING_REGION }} \
+            --image=${{ vars.ARTIFACT_REPO }}/api:${{ needs.build.outputs.image_tag }} \
+            --command=alembic --args=upgrade,head \
+            --service-account=ai-stt-stt-worker@${{ vars.GCP_PROJECT_ID_STAGING }}.iam.gserviceaccount.com \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+            --vpc-connector=ai-stt-stg-conn-${{ vars.STAGING_REGION }} \
+            --vpc-egress=private-ranges-only \
+            --max-retries=2 \
+            --quiet
+          gcloud run jobs execute ai-stt-migrate \
+            --region=${{ vars.STAGING_REGION }} --wait --quiet
+
+      - name: Deploy revisions with new image tag
+        run: |
+          set -e
+          IMAGE_API=${{ vars.ARTIFACT_REPO }}/api:${{ needs.build.outputs.image_tag }}
+          IMAGE_FE=${{ vars.ARTIFACT_REPO }}/frontend:${{ needs.build.outputs.image_tag }}
+          REGION=${{ vars.STAGING_REGION }}
+          for svc in ai-stt-api ai-stt-stt-worker ai-stt-llm-worker ai-stt-outbox; do
+            gcloud run services update "$svc" --region="$REGION" --image="$IMAGE_API" --quiet
+          done
+          gcloud run services update ai-stt-frontend --region="$REGION" --image="$IMAGE_FE" --quiet
+
+  e2e:
+    needs: apply
+    uses: ./.github/workflows/e2e.yml
+    with:
+      base_url: ${{ vars.STAGING_BASE_URL }}
+    secrets: inherit

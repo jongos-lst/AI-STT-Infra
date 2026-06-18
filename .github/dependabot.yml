@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      python-minor:
+        update-types: [minor, patch]
+    labels: [dependencies, backend]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      js-minor:
+        update-types: [minor, patch]
+    labels: [dependencies, frontend]
+
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: weekly, day: monday }
+    labels: [dependencies, docker]
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule: { interval: weekly, day: monday }
+    labels: [dependencies, docker]
+
+  - package-ecosystem: terraform
+    directory: /infra/envs/staging
+    schedule: { interval: monthly }
+    labels: [dependencies, infra]
+
+  - package-ecosystem: terraform
+    directory: /infra/envs/prod
+    schedule: { interval: monthly }
+    labels: [dependencies, infra]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    labels: [dependencies, ci]

@@ -1,0 +1,92 @@
+name: infra-ci
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra-ci.yml"
+
+permissions:
+  contents: read
+  pull-requests: write   # for the plan comment
+
+concurrency:
+  group: infra-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt-validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: terraform fmt -check
+        run: terraform fmt -recursive -check infra/
+
+      - name: validate each env
+        run: |
+          set -e
+          for env in bootstrap staging prod; do
+            echo "=== infra/envs/$env ==="
+            terraform -chdir="infra/envs/$env" init -backend=false
+            terraform -chdir="infra/envs/$env" validate
+          done
+
+  plan-staging:
+    if: github.event_name == 'pull_request'
+    needs: fmt-validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID_STAGING }}
+      TF_VAR_host:               ${{ vars.STAGING_HOST }}
+      TF_VAR_artifact_repo:      ${{ vars.ARTIFACT_REPO }}
+      TF_VAR_notification_email: ${{ vars.NOTIFICATION_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Auth to GCP via OIDC
+        if: ${{ vars.GCP_WIF_PROVIDER != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: terraform plan
+        id: plan
+        if: ${{ vars.GCP_WIF_PROVIDER != '' }}
+        run: |
+          terraform -chdir=infra/envs/staging init
+          terraform -chdir=infra/envs/staging plan -no-color -out=tfplan
+          terraform -chdir=infra/envs/staging show -no-color tfplan > plan.txt
+
+      - name: Comment plan on PR
+        if: ${{ vars.GCP_WIF_PROVIDER != '' && steps.plan.outcome == 'success' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('plan.txt', 'utf8').slice(0, 60_000);
+            const body = "### terraform plan (staging)\n```\n" + plan + "\n```";
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

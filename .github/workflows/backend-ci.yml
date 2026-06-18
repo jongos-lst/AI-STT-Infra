@@ -1,0 +1,91 @@
+name: backend-ci
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_stt
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_stt"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov ruff mypy
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Mypy
+        run: mypy app
+        continue-on-error: true  # tighten when types are fully clean
+
+      - name: Alembic upgrade
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_stt
+        run: alembic upgrade head
+
+      - name: Pytest (unit + coverage)
+        env:
+          APP_ENV: dev
+          AUTH_DISABLED: "true"
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_stt
+          REDIS_URL: redis://localhost:6379/0
+          STT_PROVIDER: mock
+          LLM_PROVIDER: mock
+        run: pytest tests/unit -v --cov=app --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ github.sha }}
+          path: backend/coverage.xml
+          retention-days: 7

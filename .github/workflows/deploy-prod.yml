@@ -1,0 +1,209 @@
+name: deploy-prod
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  # Reuses the same build pipeline so the image we promote was scanned + signed.
+  build:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+
+  resolve-tag:
+    runs-on: ubuntu-24.04
+    needs: [build]
+    if: always() && (needs.build.result == 'success' || github.event_name == 'workflow_dispatch')
+    outputs:
+      image_tag: ${{ steps.t.outputs.tag }}
+    steps:
+      - id: t
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ needs.build.outputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # GitHub Environment "prod-gate" should be configured with required reviewers.
+  # The workflow pauses here until a human approves.
+  approve:
+    needs: resolve-tag
+    runs-on: ubuntu-24.04
+    environment: prod-gate
+    steps:
+      - run: echo "Approved to ship ${{ needs.resolve-tag.outputs.image_tag }} to prod."
+
+  apply-tf:
+    needs: [resolve-tag, approve]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: prod
+    env:
+      TF_VAR_project_id:         ${{ vars.GCP_PROJECT_ID_PROD }}
+      TF_VAR_host:               ${{ vars.PROD_HOST }}
+      TF_VAR_artifact_repo:      ${{ vars.ARTIFACT_REPO }}
+      TF_VAR_image_tag:          ${{ needs.resolve-tag.outputs.image_tag }}
+      TF_VAR_notification_email: ${{ vars.NOTIFICATION_EMAIL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.10.5" }
+
+      - run: terraform -chdir=infra/envs/prod init
+      - run: terraform -chdir=infra/envs/prod apply -auto-approve
+
+  migrate:
+    needs: [resolve-tag, apply-tf]
+    runs-on: ubuntu-24.04
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Alembic upgrade (one-shot Cloud Run Job)
+        run: |
+          gcloud run jobs deploy ai-stt-migrate \
+            --region=${{ vars.PRIMARY_REGION }} \
+            --image=${{ vars.ARTIFACT_REPO }}/api:${{ needs.resolve-tag.outputs.image_tag }} \
+            --command=alembic --args=upgrade,head \
+            --service-account=ai-stt-stt-worker@${{ vars.GCP_PROJECT_ID_PROD }}.iam.gserviceaccount.com \
+            --set-secrets=DATABASE_URL=DATABASE_URL:latest \
+            --vpc-connector=ai-stt-prod-conn-${{ vars.PRIMARY_REGION }} \
+            --vpc-egress=private-ranges-only \
+            --max-retries=2 \
+            --quiet
+          gcloud run jobs execute ai-stt-migrate --region=${{ vars.PRIMARY_REGION }} --wait --quiet
+
+  canary:
+    needs: [resolve-tag, migrate]
+    runs-on: ubuntu-24.04
+    environment: prod
+    strategy:
+      matrix:
+        region: ["asia-east1", "us-central1"]
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy new revision (0% traffic)
+        run: |
+          IMAGE_API=${{ vars.ARTIFACT_REPO }}/api:${{ needs.resolve-tag.outputs.image_tag }}
+          IMAGE_FE=${{ vars.ARTIFACT_REPO }}/frontend:${{ needs.resolve-tag.outputs.image_tag }}
+          REGION=${{ matrix.region }}
+          for svc in ai-stt-api ai-stt-stt-worker ai-stt-llm-worker ai-stt-outbox; do
+            gcloud run services update "$svc" --region="$REGION" --image="$IMAGE_API" --no-traffic --tag=canary --quiet
+          done
+          gcloud run services update ai-stt-frontend --region="$REGION" --image="$IMAGE_FE" --no-traffic --tag=canary --quiet
+
+      - name: Shift 10% traffic to canary
+        run: |
+          REGION=${{ matrix.region }}
+          for svc in ai-stt-api ai-stt-frontend; do
+            gcloud run services update-traffic "$svc" --region="$REGION" --to-tags=canary=10 --quiet
+          done
+
+  watch-canary:
+    needs: canary
+    runs-on: ubuntu-24.04
+    environment: prod
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Watch SLOs for 10 minutes
+        id: watch
+        run: |
+          set -e
+          sleep 600
+          FILTER='metric.type="run.googleapis.com/request_count" resource.type="cloud_run_revision" metric.label.response_code_class="5xx"'
+          ERR=$(gcloud monitoring time-series list \
+              --project=${{ vars.GCP_PROJECT_ID_PROD }} \
+              --filter="$FILTER" \
+              --format="value(points[0].value.int64Value)" 2>/dev/null | head -1)
+          echo "canary_5xx=${ERR:-0}" >> "$GITHUB_OUTPUT"
+          # Pass-through unless 5xx count > 50 in the window.
+          if [ "${ERR:-0}" -gt 50 ]; then
+            echo "regression=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mark regression
+        if: steps.watch.outputs.regression == 'true'
+        run: exit 1   # failure triggers the rollback job below
+
+  promote:
+    needs: watch-canary
+    if: success()
+    runs-on: ubuntu-24.04
+    environment: prod
+    strategy:
+      matrix:
+        region: ["asia-east1", "us-central1"]
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Promote canary → 100%
+        run: |
+          REGION=${{ matrix.region }}
+          for svc in ai-stt-api ai-stt-stt-worker ai-stt-llm-worker ai-stt-outbox ai-stt-frontend; do
+            gcloud run services update-traffic "$svc" --region="$REGION" --to-latest --quiet
+          done
+
+  rollback:
+    needs: watch-canary
+    if: failure()
+    runs-on: ubuntu-24.04
+    environment: prod
+    strategy:
+      matrix:
+        region: ["asia-east1", "us-central1"]
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Revert traffic to previous stable revision
+        run: |
+          REGION=${{ matrix.region }}
+          for svc in ai-stt-api ai-stt-stt-worker ai-stt-llm-worker ai-stt-outbox ai-stt-frontend; do
+            PREV=$(gcloud run revisions list --service="$svc" --region="$REGION" --format='value(metadata.name)' --limit=2 | tail -1)
+            if [ -n "$PREV" ]; then
+              gcloud run services update-traffic "$svc" --region="$REGION" --to-revisions="$PREV=100" --quiet
+            fi
+          done
