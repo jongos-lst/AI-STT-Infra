@@ -41,7 +41,6 @@ jobs:
     needs: guard
     if: needs.guard.outputs.configured == 'true'
     uses: ./.github/workflows/build.yml
-    secrets: inherit
 
   apply:
     needs: [guard, build]
@@ -103,4 +102,3 @@ jobs:
     uses: ./.github/workflows/e2e.yml
     with:
       base_url: ${{ vars.STAGING_BASE_URL }}
-    secrets: inherit
