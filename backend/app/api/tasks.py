@@ -55,7 +55,7 @@ async def create_task(
             payload={"filename": body.filename, "bytes": body.audio_bytes},
         )
 
-        url = signed_upload_url(
+        target = signed_upload_url(
             settings.gcs_bucket_audio,
             _audio_object_path(task),
             content_type=body.content_type,
@@ -63,11 +63,9 @@ async def create_task(
         )
         return CreateTaskResponse(
             task_id=task.id,
-            upload_url=url,
-            upload_headers={
-                "Content-Type": body.content_type,
-                "X-Goog-Content-Length-Range": f"0,{body.audio_bytes}",
-            },
+            upload_url=target.url,
+            upload_method=target.method,  # type: ignore[arg-type]
+            upload_headers=target.headers,
             expires_in_seconds=settings.signed_url_ttl_seconds,
         )
 

@@ -21,7 +21,7 @@ export interface CreateTaskRequest {
 export interface CreateTaskResponse {
   task_id: string;
   upload_url: string;
-  upload_method: "PUT";
+  upload_method: "PUT" | "POST";
   upload_headers: Record<string, string>;
   expires_in_seconds: number;
 }

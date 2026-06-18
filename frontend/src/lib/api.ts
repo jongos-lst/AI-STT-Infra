@@ -47,11 +47,17 @@ export const api = {
   getTask: (taskId: string) => request<TaskResponse>(`/v1/tasks/${taskId}`),
 };
 
-/** PUT the file to GCS via the signed URL. Must include the exact headers the
- * gateway signed against, or GCS rejects the upload. */
-export async function uploadToSignedUrl(url: string, headers: Record<string, string>, file: File): Promise<void> {
-  const res = await fetch(url, { method: "PUT", headers, body: file });
+/** Send the file to GCS via the gateway-issued URL. In prod this is a signed
+ * PUT; in dev (fake-gcs-server) it's a POST to the JSON upload endpoint. The
+ * server controls method/headers — the client just relays them. */
+export async function uploadToSignedUrl(
+  url: string,
+  method: "PUT" | "POST",
+  headers: Record<string, string>,
+  file: File,
+): Promise<void> {
+  const res = await fetch(url, { method, headers, body: file });
   if (!res.ok) {
-    throw new Error(`signed-url upload failed: ${res.status} ${await res.text()}`);
+    throw new Error(`upload failed: ${res.status} ${await res.text()}`);
   }
 }

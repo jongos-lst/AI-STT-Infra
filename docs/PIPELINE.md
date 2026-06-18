@@ -78,9 +78,41 @@ Delivered (Next.js 15 + TypeScript + Tailwind):
 
 ## Phase 4 — Local dev (`docker-compose`)
 
-Planned:
-- Postgres, Redis, Pub/Sub emulator, GCS emulator (fake-gcs-server), mock STT/LLM, API, worker(s), frontend.
-- One-command boot, seeded data.
+**Date:** 2026-06-18
+**Status:** ✅ done — full stack running, end-to-end task pipeline proven
+
+**11 containers up under `docker compose up --build`:**
+
+| Tier | Services |
+|---|---|
+| Data plane | `postgres`, `redis`, `pubsub-emulator`, `gcs` (fake-gcs-server) |
+| One-shot init | `db-migrate` (alembic upgrade head), `init-pubsub` (topics + push subs + DLQ + 5-attempt redelivery), `init-gcs` (buckets + CORS rules) |
+| Backend | `api`, `stt-worker`, `llm-worker`, `outbox-sweeper` |
+| Frontend | `frontend` |
+
+**Boot order** is enforced by `service_completed_successfully` on the init containers. App services don't start until migrations have run and topics/buckets exist.
+
+**End-to-end smoke test (via curl):** create task → POST audio bytes to fake-gcs → POST `/complete` → poll. Result:
+```
+poll 1: QUEUED
+poll 2: DONE
+```
+DB rows confirm transcript and summary saved; objects confirmed in both buckets (`audio` + `transcripts`).
+
+**Dev/prod parity break (documented):** real GCS signed URLs use `PUT`; fake-gcs-server requires `POST` to `/upload/storage/v1/b/<bucket>/o?uploadType=media`. The API response now carries `upload_method` so the same frontend code works against both — divergence is isolated to one branch in `app/infra/gcs.py:signed_upload_url`.
+
+**Other fixes during bring-up:**
+- Simplified `backend/Dockerfile` to use `requirements.txt` for a cache-friendly deps layer.
+- `app/infra/gcs.py` now uses `AnonymousCredentials` when `STORAGE_EMULATOR_HOST` is set.
+- CORS is applied per-bucket via the `init-gcs` script (fake-gcs-server has no CLI CORS flag).
+- `outbox-sweeper` healthcheck disabled in compose (it has no HTTP server).
+
+**Verified:** 7/7 frontend tests still green, full task pipeline observed end-to-end, all 11 containers report `healthy` or `running` after stabilization.
+
+**Open in a browser:**
+- http://localhost:3000 — frontend (drag in a `.wav`)
+- http://localhost:8080/docs — Swagger UI
+- http://localhost:4443 — fake-gcs-server
 
 ---
 

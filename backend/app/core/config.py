@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     gcp_project_id: str = "ai-stt-dev"
     pubsub_emulator_host: str | None = None
     storage_emulator_host: str | None = None
+    # Browser-reachable address of the storage host. In dev with fake-gcs-server,
+    # services talk to gcs:4443 but the browser must hit localhost:4443.
+    gcs_public_url: str | None = None
 
     pubsub_topic_stt: str = "stt.requested"
     pubsub_topic_llm: str = "llm.requested"

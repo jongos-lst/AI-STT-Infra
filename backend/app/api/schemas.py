@@ -29,7 +29,7 @@ class CreateTaskRequest(BaseModel):
 class CreateTaskResponse(BaseModel):
     task_id: UUID
     upload_url: str
-    upload_method: Literal["PUT"] = "PUT"
+    upload_method: Literal["PUT", "POST"] = "PUT"
     upload_headers: dict[str, str]
     expires_in_seconds: int
 

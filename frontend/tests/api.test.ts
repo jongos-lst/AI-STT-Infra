@@ -52,6 +52,7 @@ describe("api client", () => {
 
     await uploadToSignedUrl(
       "https://signed.example.com/abc",
+      "PUT",
       { "Content-Type": "audio/mpeg", "X-Goog-Content-Length-Range": "0,5" },
       file,
     );

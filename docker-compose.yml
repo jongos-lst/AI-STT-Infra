@@ -1,0 +1,179 @@
+# Full local stack — one command boots everything.
+#
+#   docker compose up --build
+#
+# Services come up in dependency order via service_completed_successfully on the
+# three init containers (db-migrate, init-pubsub, init-gcs).
+#
+# Open:
+#   http://localhost:3000        frontend (Next.js)
+#   http://localhost:8080/docs   API gateway (Swagger)
+#   http://localhost:4443        fake-gcs-server
+#   http://localhost:8085        Pub/Sub emulator
+#   postgres://postgres:postgres@localhost:5432/ai_stt
+#   redis://localhost:6379
+
+name: ai-stt
+
+x-backend-env: &backend-env
+  APP_ENV: dev
+  LOG_LEVEL: INFO
+  AUTH_DISABLED: "true"
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ai_stt
+  REDIS_URL: redis://redis:6379/0
+  GCP_PROJECT_ID: ai-stt-dev
+  PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+  STORAGE_EMULATOR_HOST: http://gcs:4443
+  GCS_PUBLIC_URL: http://localhost:4443
+  GCS_BUCKET_AUDIO: ai-stt-dev-audio
+  GCS_BUCKET_TRANSCRIPTS: ai-stt-dev-transcripts
+  STT_PROVIDER: mock
+  LLM_PROVIDER: mock
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+
+services:
+  # ---------------- data plane ----------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_stt
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_stt"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes: [pgdata:/var/lib/postgresql/data]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command:
+      - gcloud
+      - beta
+      - emulators
+      - pubsub
+      - start
+      - --host-port=0.0.0.0:8085
+      - --project=ai-stt-dev
+    ports: ["8085:8085"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8085/ >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      retries: 30
+
+  gcs:
+    image: fsouza/fake-gcs-server:1.50.2
+    command:
+      - -scheme=http
+      - -port=4443
+      - -public-host=localhost:4443
+      - -external-url=http://localhost:4443
+    ports: ["4443:4443"]
+    volumes: [gcsdata:/storage]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:4443/storage/v1/b?project=ai-stt-dev || exit 1"]
+      interval: 3s
+      retries: 30
+
+  # ---------------- one-shot init ----------------
+  db-migrate:
+    build: { context: ./backend }
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-env
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  init-pubsub:
+    image: curlimages/curl:8.10.1
+    user: root
+    volumes:
+      - ./infra/dev/init-pubsub.sh:/init.sh:ro
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub-emulator:8085
+      GCP_PROJECT_ID: ai-stt-dev
+    entrypoint: ["sh", "/init.sh"]
+    depends_on:
+      pubsub-emulator: { condition: service_healthy }
+    restart: "no"
+
+  init-gcs:
+    image: curlimages/curl:8.10.1
+    user: root
+    volumes:
+      - ./infra/dev/init-gcs.sh:/init.sh:ro
+    environment:
+      GCS_HOST: http://gcs:4443
+    entrypoint: ["sh", "/init.sh"]
+    depends_on:
+      gcs: { condition: service_healthy }
+    restart: "no"
+
+  # ---------------- backend services ----------------
+  api:
+    build: { context: ./backend }
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment: *backend-env
+    ports: ["8080:8080"]
+    depends_on:
+      db-migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      init-gcs: { condition: service_completed_successfully }
+      init-pubsub: { condition: service_completed_successfully }
+
+  stt-worker:
+    build: { context: ./backend }
+    command: ["uvicorn", "app.workers.stt_worker:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: ai-stt-stt-worker
+    depends_on:
+      db-migrate: { condition: service_completed_successfully }
+      init-pubsub: { condition: service_completed_successfully }
+      init-gcs: { condition: service_completed_successfully }
+
+  llm-worker:
+    build: { context: ./backend }
+    command: ["uvicorn", "app.workers.llm_worker:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: ai-stt-llm-worker
+    depends_on:
+      db-migrate: { condition: service_completed_successfully }
+      init-pubsub: { condition: service_completed_successfully }
+
+  outbox-sweeper:
+    build: { context: ./backend }
+    command: ["python", "-m", "app.workers.outbox_sweeper"]
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: ai-stt-outbox-sweeper
+    depends_on:
+      db-migrate: { condition: service_completed_successfully }
+      init-pubsub: { condition: service_completed_successfully }
+    restart: unless-stopped
+    healthcheck:
+      disable: true   # no HTTP server — sweeper is a long-running loop
+
+  # ---------------- frontend ----------------
+  frontend:
+    build: { context: ./frontend }
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
+      NEXT_PUBLIC_APP_ENV: dev
+    ports: ["3000:3000"]
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  gcsdata:

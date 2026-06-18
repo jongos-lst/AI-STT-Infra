@@ -38,7 +38,7 @@ export function UploadCard() {
       });
 
       setPhase("uploading");
-      await uploadToSignedUrl(created.upload_url, created.upload_headers, file);
+      await uploadToSignedUrl(created.upload_url, created.upload_method, created.upload_headers, file);
 
       setPhase("completing");
       await api.completeUpload(created.task_id);
