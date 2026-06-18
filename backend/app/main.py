@@ -22,18 +22,19 @@ def _auto_instrument(app: FastAPI) -> None:
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         FastAPIInstrumentor.instrument_app(app, excluded_urls="healthz,readyz")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning("otel.fastapi.skipped", error=str(e))
     try:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
         from app.infra.db import engine as _engine
         SQLAlchemyInstrumentor().instrument(engine=_engine.sync_engine)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning("otel.sqlalchemy.skipped", error=str(e))
     try:
         from opentelemetry.instrumentation.redis import RedisInstrumentor
         RedisInstrumentor().instrument()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning("otel.redis.skipped", error=str(e))
 
 

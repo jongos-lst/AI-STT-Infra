@@ -27,7 +27,6 @@ dependencies = [
     "opentelemetry-exporter-gcp-trace>=1.9",
     "opentelemetry-exporter-gcp-monitoring>=1.9",
     "tenacity>=9.0",
-    "python-jose[cryptography]>=3.3",
 ]
 
 [dependency-groups]
@@ -49,7 +48,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "RUF", "SIM", "ASYNC"]
-ignore = ["E501"]
+ignore = [
+    "E501",   # line length — handled by formatter when we adopt one
+    "B008",   # FastAPI requires Depends(...) in argument defaults
+    "N818",   # exception class names without 'Error' suffix are intentional
+]
 
 [tool.mypy]
 python_version = "3.12"

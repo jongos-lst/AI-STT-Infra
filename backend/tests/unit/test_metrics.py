@@ -9,7 +9,6 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
 from app.core import metrics as app_metrics
 from app.core.metrics import (
-    provider_latency_seconds,
     record_provider_error,
     record_transition,
     time_block,

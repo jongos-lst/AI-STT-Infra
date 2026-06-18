@@ -6,7 +6,7 @@ everything else raises. Workers and the API both go through `transition()`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -61,11 +61,11 @@ class Task:
     audio_bytes: int | None = None
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
-    def new(cls, tenant_id: str, audio_sha256: str, audio_bytes: int, filename: str) -> "Task":
+    def new(cls, tenant_id: str, audio_sha256: str, audio_bytes: int, filename: str) -> Task:
         return cls(
             id=uuid4(),
             tenant_id=tenant_id,
@@ -78,12 +78,12 @@ class Task:
     def move_to(self, target: TaskStatus, *, error: str | None = None) -> None:
         prev = self.status
         self.status = transition(self.status, target)
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = datetime.now(UTC)
         if error is not None:
             self.error = error
         # Late import so the metrics module is optional (e.g. for cold scripts).
         try:
             from app.core.metrics import record_transition
             record_transition(prev.value, self.status.value)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass

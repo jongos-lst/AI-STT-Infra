@@ -27,6 +27,9 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    # Skip cleanly until the bootstrap Terraform has been run and these
+    # repo variables are populated — see .github/README.md for the list.
+    if: vars.GCP_WIF_PROVIDER != '' && vars.ARTIFACT_REPO != ''
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
 
@@ -75,7 +78,7 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
 
       - name: Trivy scan pushed image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ${{ vars.ARTIFACT_REPO }}/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
           format: sarif

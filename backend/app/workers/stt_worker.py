@@ -6,6 +6,7 @@ we UPSERT, so retries are safe.
 """
 from __future__ import annotations
 
+import contextlib
 from uuid import UUID
 
 from fastapi import FastAPI, Request
@@ -101,13 +102,11 @@ async def handle(req: Request) -> dict[str, str]:
             log.info("stt.done", task_id=str(task_id), provider=result.provider)
             return {"status": "ok"}
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("stt.fail", task_id=str(task_id), error=str(e))
             async with session_scope() as s:
                 repo = TaskRepository(s)
-                try:
+                with contextlib.suppress(Exception):
                     await repo.update_status(task_id, TaskStatus.FAILED, error=str(e))
-                except Exception:  # noqa: BLE001
-                    pass
             # Return 500 so Pub/Sub redelivers up to dead_letter_max_attempts.
             raise

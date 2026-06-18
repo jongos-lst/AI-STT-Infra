@@ -34,7 +34,7 @@ class OpenAIWhisper(STTProvider):
                     language=language,
                     response_format="verbose_json",
                 )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise ProviderError(f"whisper failure: {e}") from e
         return TranscriptResult(
             text=resp.text,

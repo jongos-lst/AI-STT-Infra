@@ -1,6 +1,7 @@
 """LLM worker — consumes `llm.requested`, summarizes transcript, writes summary."""
 from __future__ import annotations
 
+import contextlib
 from uuid import UUID
 
 from fastapi import FastAPI, Request
@@ -80,12 +81,10 @@ async def handle(req: Request) -> dict[str, str]:
             log.info("llm.done", task_id=str(task_id), provider=result.provider, model=result.model)
             return {"status": "ok"}
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("llm.fail", task_id=str(task_id), error=str(e))
             async with session_scope() as s:
                 repo = TaskRepository(s)
-                try:
+                with contextlib.suppress(Exception):
                     await repo.update_status(task_id, TaskStatus.FAILED, error=str(e))
-                except Exception:  # noqa: BLE001
-                    pass
             raise

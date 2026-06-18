@@ -36,7 +36,7 @@ async def sweep_once(batch_size: int = 200) -> int:
 
         for r in rows:
             try:
-                now = _dt.datetime.now(tz=_dt.timezone.utc)
+                now = _dt.datetime.now(tz=_dt.UTC)
                 lag = (now - r.created_at).total_seconds()
                 msg_id = publish(r.topic, r.payload, attributes=r.attributes)
                 outbox_lag_seconds.record(lag, attributes={"topic": r.topic})
@@ -45,7 +45,7 @@ async def sweep_once(batch_size: int = 200) -> int:
                     update(OutboxRow).where(OutboxRow.id == r.id).values(published_at=now)
                 )
                 sent += 1
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.exception("outbox.publish.fail", outbox_id=r.id, topic=r.topic, error=str(e))
                 # leave published_at NULL so next sweep retries
     return sent
@@ -58,7 +58,7 @@ async def run_forever(interval_seconds: float = 1.0) -> None:
             n = await sweep_once()
             if n == 0:
                 await asyncio.sleep(interval_seconds)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.exception("outbox.sweeper.error", error=str(e))
             await asyncio.sleep(interval_seconds)
 

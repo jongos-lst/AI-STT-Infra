@@ -19,12 +19,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    # Workflow no-ops until the Terraform bootstrap has set these repo
+    # variables. See .github/README.md for the full list.
+    runs-on: ubuntu-24.04
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        run: |
+          if [ -n "${{ vars.GCP_WIF_PROVIDER }}" ] \
+            && [ -n "${{ vars.ARTIFACT_REPO }}" ] \
+            && [ -n "${{ vars.GCP_PROJECT_ID_STAGING }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping staging deploy — required vars not set."
+          fi
+
   build:
+    needs: guard
+    if: needs.guard.outputs.configured == 'true'
     uses: ./.github/workflows/build.yml
     secrets: inherit
 
   apply:
-    needs: build
+    needs: [guard, build]
+    if: needs.guard.outputs.configured == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: staging   # GitHub env protection rules apply here
@@ -77,7 +98,8 @@ jobs:
           gcloud run services update ai-stt-frontend --region="$REGION" --image="$IMAGE_FE" --quiet
 
   e2e:
-    needs: apply
+    needs: [guard, apply]
+    if: needs.guard.outputs.configured == 'true'
     uses: ./.github/workflows/e2e.yml
     with:
       base_url: ${{ vars.STAGING_BASE_URL }}

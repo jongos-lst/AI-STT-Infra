@@ -83,6 +83,7 @@ async def test_outbox_enqueue_visible_to_sweeper(db, tenant):
 
     # The sweeper SELECTs by published_at IS NULL — make sure the row qualifies.
     from sqlalchemy import select
+
     from app.infra.models import OutboxRow
     rows = (await db.execute(select(OutboxRow).where(OutboxRow.published_at.is_(None)))).scalars().all()
     assert any(r.task_id == t.id and r.topic == "stt.requested" for r in rows)

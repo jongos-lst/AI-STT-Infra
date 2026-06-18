@@ -25,11 +25,11 @@ async def readyz() -> dict[str, str]:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         checks["postgres"] = "ok"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         checks["postgres"] = f"fail: {e}"
     try:
         await redis().ping()
         checks["redis"] = "ok"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         checks["redis"] = f"fail: {e}"
     return checks

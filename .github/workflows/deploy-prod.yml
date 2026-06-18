@@ -18,16 +18,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        run: |
+          if [ -n "${{ vars.GCP_WIF_PROVIDER }}" ] \
+            && [ -n "${{ vars.ARTIFACT_REPO }}" ] \
+            && [ -n "${{ vars.GCP_PROJECT_ID_PROD }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping prod deploy — required vars not set."
+          fi
+
   # Reuses the same build pipeline so the image we promote was scanned + signed.
   build:
-    if: github.event_name == 'push'
+    needs: guard
+    if: needs.guard.outputs.configured == 'true' && github.event_name == 'push'
     uses: ./.github/workflows/build.yml
     secrets: inherit
 
   resolve-tag:
     runs-on: ubuntu-24.04
-    needs: [build]
-    if: always() && (needs.build.result == 'success' || github.event_name == 'workflow_dispatch')
+    needs: [guard, build]
+    if: needs.guard.outputs.configured == 'true' && always() && (needs.build.result == 'success' || github.event_name == 'workflow_dispatch')
     outputs:
       image_tag: ${{ steps.t.outputs.tag }}
     steps:

@@ -23,7 +23,7 @@ os.environ.setdefault("APP_ENV", "dev")
 os.environ.setdefault("AUTH_DISABLED", "true")
 
 # Skip the whole file if Postgres isn't reachable.
-import asyncpg  # noqa: E402
+import asyncpg
 
 
 async def _can_connect() -> bool:

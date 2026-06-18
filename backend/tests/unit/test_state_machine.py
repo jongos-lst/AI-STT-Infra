@@ -43,4 +43,4 @@ def test_invalid_transitions(src: TaskStatus, dst: TaskStatus) -> None:
 
 
 def test_terminal_states_exact() -> None:
-    assert TERMINAL == frozenset({TaskStatus.DONE, TaskStatus.FAILED})
+    assert frozenset({TaskStatus.DONE, TaskStatus.FAILED}) == TERMINAL

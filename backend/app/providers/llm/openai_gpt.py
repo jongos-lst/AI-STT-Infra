@@ -39,7 +39,7 @@ class OpenAIChat(LLMProvider):
                 max_tokens=max_tokens,
                 temperature=0.2,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise ProviderError(f"gpt failure: {e}") from e
         usage = resp.usage
         return SummaryResult(
