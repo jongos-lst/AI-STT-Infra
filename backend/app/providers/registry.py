@@ -11,17 +11,21 @@ from app.core.config import settings
 from app.providers.base import LLMProvider, STTProvider
 from app.providers.llm.mock import MockLLM
 from app.providers.llm.openai_gpt import OpenAIChat
+from app.providers.llm.openrouter_chat import OpenRouterChat
 from app.providers.stt.mock import MockSTT
 from app.providers.stt.openai_whisper import OpenAIWhisper
+from app.providers.stt.openrouter_whisper import OpenRouterWhisper
 
 _STT_REGISTRY: dict[str, type[STTProvider]] = {
     "mock": MockSTT,
     "openai-whisper": OpenAIWhisper,
+    "openrouter-whisper": OpenRouterWhisper,
 }
 
 _LLM_REGISTRY: dict[str, type[LLMProvider]] = {
     "mock": MockLLM,
     "openai-gpt": OpenAIChat,
+    "openrouter-chat": OpenRouterChat,
 }
 
 

@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     vertex_location: str = "us-central1"
 
+    # OpenRouter — used by the openrouter-whisper / openrouter-chat providers.
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_stt_model: str = "openai/whisper-large-v3"
+    openrouter_llm_model: str = "openai/gpt-5-nano"
+    openrouter_referer: str = "https://github.com/jongos-lst/AI-STT-Infra"
+    openrouter_title: str = "AI-STT-Infra"
+
     jwt_audience: str = "ai-stt-platform"
     jwt_issuer: str = "https://securetoken.google.com/ai-stt-dev"
     # Defaults fail safe: production cannot accidentally run with auth off.

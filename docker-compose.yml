@@ -27,8 +27,14 @@ x-backend-env: &backend-env
   GCS_PUBLIC_URL: http://localhost:4443
   GCS_BUCKET_AUDIO: ai-stt-dev-audio
   GCS_BUCKET_TRANSCRIPTS: ai-stt-dev-transcripts
-  STT_PROVIDER: mock
-  LLM_PROVIDER: mock
+  # Provider switches — override via project-root .env (see .env.example).
+  # Defaults to mock so the stack works with zero config.
+  STT_PROVIDER: ${STT_PROVIDER:-mock}
+  LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  OPENROUTER_STT_MODEL: ${OPENROUTER_STT_MODEL:-openai/whisper-large-v3}
+  OPENROUTER_LLM_MODEL: ${OPENROUTER_LLM_MODEL:-openai/gpt-5-nano}
   OTEL_EXPORTER_OTLP_ENDPOINT: ""
 
 services:
