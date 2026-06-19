@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     # Skip cleanly until the bootstrap Terraform has been run and these
-    # repo variables are populated — see .github/README.md for the list.
+    # repo variables are populated — see .github/CI.md for the list.
     if: vars.GCP_WIF_PROVIDER != '' && vars.ARTIFACT_REPO != ''
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}

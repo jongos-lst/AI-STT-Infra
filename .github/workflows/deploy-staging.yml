@@ -47,7 +47,7 @@ jobs:
             echo "::notice::All required vars present — running staging deploy."
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping staging deploy — required vars not set. See .github/README.md."
+            echo "::notice::Skipping staging deploy — required vars not set. See .github/CI.md."
           fi
 
   deploy:

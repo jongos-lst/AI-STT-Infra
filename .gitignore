@@ -57,3 +57,16 @@ logs/
 # GCP
 gcp-key.json
 service-account*.json
+
+# Presentation & demo (kept outside the repo — delivery artifacts, not engineering)
+deck.md
+slides.md
+presentation.md
+demo-script.md
+demo.md
+walkthrough.md
+*.demo.md
+slides/
+presentation/
+demo/
+recordings/
