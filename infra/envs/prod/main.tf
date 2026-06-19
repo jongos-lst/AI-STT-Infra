@@ -133,6 +133,7 @@ locals {
     APP_ENV                     = "prod"
     LOG_LEVEL                   = "INFO"
     AUTH_DISABLED               = "false"
+    CORS_ORIGINS                = jsonencode(["https://${var.host}"])
     GCP_PROJECT_ID              = var.project_id
     GCS_BUCKET_AUDIO            = module.gcs.audio_bucket
     GCS_BUCKET_TRANSCRIPTS      = module.gcs.transcripts_bucket

@@ -41,7 +41,16 @@ class Settings(BaseSettings):
 
     jwt_audience: str = "ai-stt-platform"
     jwt_issuer: str = "https://securetoken.google.com/ai-stt-dev"
-    auth_disabled: bool = True
+    # Defaults fail safe: production cannot accidentally run with auth off.
+    # docker-compose explicitly sets AUTH_DISABLED=true for local dev.
+    auth_disabled: bool = False
+    cors_origins: list[str] = Field(
+        default_factory=list,
+        description="Allowed browser origins for CORS. Per-env; e.g. ['https://stg.ai-stt.example.com'].",
+    )
+    # Comma-separated audiences accepted on Pub/Sub push tokens. In Cloud Run
+    # push the audience is the worker URL. Each worker overrides this via env.
+    pubsub_push_audience: str | None = None
 
     otel_service_name: str = "ai-stt-api"
     otel_exporter_otlp_endpoint: str | None = None
