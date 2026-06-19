@@ -170,6 +170,9 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8080
       NEXT_PUBLIC_APP_ENV: dev
+      # Allowlisted by the frontend's CSP so direct PUTs to fake-gcs-server
+      # don't get blocked by the browser.
+      NEXT_PUBLIC_GCS_BASE_URL: http://localhost:4443
     ports: ["3000:3000"]
     depends_on:
       - api
