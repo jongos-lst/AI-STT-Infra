@@ -18,7 +18,7 @@ A reference implementation of an AI task-processing platform: **audio → STT �
 
 ## Common commands
 
-> Filled in as each phase lands. Treat absent commands as "not yet scaffolded" — check the phase log in `docs/PIPELINE.md` before assuming.
+> Filled in as each phase lands. Treat absent commands as "not yet scaffolded".
 
 ```bash
 # Local dev (after Phase 4)
@@ -81,7 +81,6 @@ gh workflow run deploy.yml -f env=staging
 - `ARCHITECTURE.md` — diagrams, decisions, SLOs.
 - `docs/adr/` — one ADR per cross-cutting decision.
 - `docs/runbooks/` — DLQ replay, region failover, secret rotation, rollback.
-- `docs/PIPELINE.md` — chronological log of build phases (kept in sync as phases land).
 - `infra/envs/{staging,prod}/` — per-env Terraform; modules are shared.
 
 ## When you change a provider
