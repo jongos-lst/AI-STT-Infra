@@ -76,7 +76,7 @@ jobs:
       - name: Configure docker for Artifact Registry
         run: gcloud auth configure-docker ${{ vars.ARTIFACT_REGION }}-docker.pkg.dev --quiet
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Build & push api image
         uses: docker/build-push-action@v6
