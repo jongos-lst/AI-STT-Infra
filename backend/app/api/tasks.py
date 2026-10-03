@@ -83,9 +83,7 @@ async def complete_upload(
         task = await repo.get(task_id, tenant_id=p.tenant_id)
 
         audio_uri = f"gs://{settings.gcs_bucket_audio}/{_audio_object_path(task)}"
-        task.audio_uri = audio_uri
-        task.move_to(TaskStatus.QUEUED)
-        await repo.update_status(task.id, task.status, audio_uri=audio_uri)
+        task = await repo.update_status(task.id, TaskStatus.QUEUED, audio_uri=audio_uri)
 
         # Outbox pattern: same transaction as the status update.
         attrs = inject_trace_context({"tenant_id": p.tenant_id, "task_id": str(task.id)})
