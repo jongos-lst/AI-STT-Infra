@@ -6,7 +6,6 @@ we UPSERT, so retries are safe.
 """
 from __future__ import annotations
 
-import contextlib
 from uuid import UUID
 
 from fastapi import FastAPI, Request
@@ -26,6 +25,7 @@ from app.infra.db import session_scope
 from app.infra.gcs import put_transcript_json
 from app.infra.repository import OutboxRepository, TaskRepository
 from app.providers.registry import get_stt_provider
+from app.workers._failure import record_failure
 from app.workers._pubsub_push import parse_push
 
 setup_logging()
@@ -52,8 +52,7 @@ async def handle(req: Request) -> dict[str, str]:
         try:
             async with session_scope() as s:
                 repo = TaskRepository(s)
-                outbox = OutboxRepository(s)
-                task = await repo.get_no_tenant(task_id)
+                task = await repo.get_no_tenant(task_id, for_update=True)
                 if task.status == TaskStatus.DONE or task.status == TaskStatus.FAILED:
                     log.info("stt.skip.terminal", task_id=str(task_id), status=task.status)
                     return {"status": "skipped"}
@@ -73,14 +72,19 @@ async def handle(req: Request) -> dict[str, str]:
                 except Exception:
                     record_provider_error(stt.name, "stt")
                     raise
-            raw_uri = put_transcript_json(str(task_id), {
-                "text": result.text, "language": result.language, "duration": result.duration_seconds,
-                "provider": result.provider,
-            })
 
             async with session_scope() as s:
                 repo = TaskRepository(s)
                 outbox = OutboxRepository(s)
+                task = await repo.get_no_tenant(task_id, for_update=True)
+                if task.status != TaskStatus.STT_RUNNING:
+                    return {"status": "skipped"}
+                # Serialize the small raw-result write too: a late duplicate must
+                # not overwrite the blob belonging to the accepted transcript.
+                raw_uri = put_transcript_json(str(task_id), {
+                    "text": result.text, "language": result.language, "duration": result.duration_seconds,
+                    "provider": result.provider,
+                })
                 await repo.upsert_transcript(
                     task_id,
                     attempt_id,
@@ -104,9 +108,8 @@ async def handle(req: Request) -> dict[str, str]:
 
         except Exception as e:
             log.exception("stt.fail", task_id=str(task_id), error=str(e))
-            async with session_scope() as s:
-                repo = TaskRepository(s)
-                with contextlib.suppress(Exception):
-                    await repo.update_status(task_id, TaskStatus.FAILED, error=str(e))
-            # Return 500 so Pub/Sub redelivers up to dead_letter_max_attempts.
+            outcome = await record_failure(task_id, stage="stt", message=msg, error=e)
+            if outcome is not None:
+                return {"status": outcome}
+            # Nack transient failures so Pub/Sub's backoff drives the retry.
             raise
