@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,9 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4 py-10">
           <header className="mb-8 flex items-center justify-between">
-            <a href="/" className="text-base font-semibold text-slate-900">
+            <Link href="/" className="text-base font-semibold text-slate-900">
               AI Processing Platform
-            </a>
+            </Link>
             <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
               {process.env.NEXT_PUBLIC_APP_ENV ?? "dev"}
             </span>
