@@ -1,7 +1,6 @@
 """LLM worker — consumes `llm.requested`, summarizes transcript, writes summary."""
 from __future__ import annotations
 
-import contextlib
 from uuid import UUID
 
 from fastapi import FastAPI, Request
@@ -19,6 +18,7 @@ from app.domain.task import TaskStatus
 from app.infra.db import session_scope
 from app.infra.repository import TaskRepository
 from app.providers.registry import get_llm_provider
+from app.workers._failure import record_failure
 from app.workers._pubsub_push import parse_push
 
 setup_logging()
@@ -45,7 +45,7 @@ async def handle(req: Request) -> dict[str, str]:
         try:
             async with session_scope() as s:
                 repo = TaskRepository(s)
-                task = await repo.get_no_tenant(task_id)
+                task = await repo.get_no_tenant(task_id, for_update=True)
                 if task.status in (TaskStatus.DONE, TaskStatus.FAILED):
                     return {"status": "skipped"}
                 if task.status not in (TaskStatus.STT_DONE, TaskStatus.LLM_RUNNING):
@@ -67,6 +67,9 @@ async def handle(req: Request) -> dict[str, str]:
 
             async with session_scope() as s:
                 repo = TaskRepository(s)
+                task = await repo.get_no_tenant(task_id, for_update=True)
+                if task.status != TaskStatus.LLM_RUNNING:
+                    return {"status": "skipped"}
                 await repo.upsert_summary(
                     task_id,
                     attempt_id,
@@ -83,8 +86,7 @@ async def handle(req: Request) -> dict[str, str]:
 
         except Exception as e:
             log.exception("llm.fail", task_id=str(task_id), error=str(e))
-            async with session_scope() as s:
-                repo = TaskRepository(s)
-                with contextlib.suppress(Exception):
-                    await repo.update_status(task_id, TaskStatus.FAILED, error=str(e))
+            outcome = await record_failure(task_id, stage="llm", message=msg, error=e)
+            if outcome is not None:
+                return {"status": outcome}
             raise

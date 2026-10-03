@@ -6,7 +6,7 @@ which has its own narrow scope).
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import select
@@ -64,11 +64,9 @@ class TaskRepository:
             raise NotFoundError(f"task {task_id}")
         return _row_to_task(row)
 
-    async def get_no_tenant(self, task_id: UUID) -> Task:
+    async def get_no_tenant(self, task_id: UUID, *, for_update: bool = False) -> Task:
         """For workers: messages already authenticated by Pub/Sub OIDC."""
-        row = await self.s.get(TaskRow, task_id)
-        if not row:
-            raise NotFoundError(f"task {task_id}")
+        row = await self._get_row(task_id, for_update=for_update)
         return _row_to_task(row)
 
     async def update_status(
@@ -78,15 +76,56 @@ class TaskRepository:
         *,
         audio_uri: str | None = None,
         error: str | None = None,
-    ) -> None:
-        row = await self.s.get(TaskRow, task_id)
-        if not row:
-            raise NotFoundError(f"task {task_id}")
-        row.status = status.value
+    ) -> Task:
+        row = await self._get_row(task_id, for_update=True)
+        self._move_row(row, status, error=error)
         if audio_uri is not None:
             row.audio_uri = audio_uri
-        if error is not None:
-            row.error = error
+        return _row_to_task(row)
+
+    async def _get_row(self, task_id: UUID, *, for_update: bool) -> TaskRow:
+        # Refresh a cached ORM identity after acquiring the lock: a different
+        # delivery may have committed since this transaction first read it.
+        row = await self.s.get(
+            TaskRow, task_id, with_for_update=for_update, populate_existing=for_update,
+        )
+        if not row:
+            raise NotFoundError(f"task {task_id}")
+        return row
+
+    @staticmethod
+    def _move_row(row: TaskRow, status: TaskStatus, *, error: str | None = None) -> None:
+        task = _row_to_task(row)
+        task.move_to(status, error=error)
+        row.status = task.status.value
+        row.updated_at = task.updated_at
+        row.error = task.error
+
+    async def record_stage_failure(
+        self, task_id: UUID, *, stage: Literal["stt", "llm"], error: str, max_failures: int,
+    ) -> TaskStatus | None:
+        """Count a failed execution under a row lock; ignore late deliveries.
+
+        The caller commits this together with the terminal DLQ outbox event.
+        Counts live in the DB because Pub/Sub deliveryAttempt is best-effort and
+        may be absent or reset; a worker restart must not reset the budget.
+        """
+        row = await self._get_row(task_id, for_update=True)
+        ready, running = (
+            (TaskStatus.QUEUED, TaskStatus.STT_RUNNING) if stage == "stt"
+            else (TaskStatus.STT_DONE, TaskStatus.LLM_RUNNING)
+        )
+        if TaskStatus(row.status) not in (ready, running):
+            return None
+        if stage == "stt":
+            row.stt_failures += 1
+            failures = row.stt_failures
+        else:
+            row.llm_failures += 1
+            failures = row.llm_failures
+        target = TaskStatus.FAILED if failures >= max_failures else running
+        self._move_row(row, target, error=error)
+        return target
 
     async def upsert_transcript(
         self,

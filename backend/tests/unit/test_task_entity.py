@@ -23,3 +23,11 @@ def test_move_records_error_on_failure() -> None:
     t.move_to(TaskStatus.QUEUED)
     t.move_to(TaskStatus.FAILED, error="boom")
     assert t.error == "boom"
+
+
+def test_successful_retry_clears_previous_error() -> None:
+    task = Task.new(tenant_id="t1", audio_sha256="a" * 64, audio_bytes=1, filename="x")
+    task.move_to(TaskStatus.QUEUED)
+    task.move_to(TaskStatus.STT_RUNNING, error="temporary failure")
+    task.move_to(TaskStatus.STT_DONE)
+    assert task.error is None

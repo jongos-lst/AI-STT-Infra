@@ -79,8 +79,7 @@ class Task:
         prev = self.status
         self.status = transition(self.status, target)
         self.updated_at = datetime.now(UTC)
-        if error is not None:
-            self.error = error
+        self.error = error
         # Late import so the metrics module is optional (e.g. for cold scripts).
         try:
             from app.core.metrics import record_transition
