@@ -478,8 +478,7 @@ flowchart LR
 │       └── prod/
 └── docs/
     ├── adr/                   # ADR-001 … ADR-010
-    ├── runbooks/              # DLQ replay, region failover, secret rotation
-    └── demo-script.md
+    └── runbooks/              # DLQ replay, region failover, secret rotation
 ```
 
 ---

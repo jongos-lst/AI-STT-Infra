@@ -18,9 +18,6 @@ open http://localhost:3000      # drag in any .wav and watch it reach DONE
 | [`infra/`](infra) | 10 Terraform modules · 3 envs (bootstrap / staging / prod) | all `validate` clean |
 | [`.github/workflows/`](.github/workflows) | 8 GitHub Actions workflows · OIDC to GCP · canary + auto-rollback | `actionlint` clean |
 | [`docs/runbooks/`](docs/runbooks) | DLQ replay · region failover · secret rotation · rollback · on-call handoff | paste-ready `gcloud` |
-| [`docs/demo-script.md`](docs/demo-script.md) | 10-minute live demo with talking points | — |
-| [`docs/deck.md`](docs/deck.md) | 15-slide interview deck outline | — |
-| [`docs/PIPELINE.md`](docs/PIPELINE.md) | Chronological build log — every phase, every commit, every fix | — |
 
 ## Architecture in one minute
 
@@ -82,8 +79,6 @@ npx playwright test                                               # e2e against 
 # Terraform
 ./infra/scripts/tf.sh envs/staging plan                           # docker-wrapped, no host install
 ```
-
-See [`docs/PIPELINE.md`](docs/PIPELINE.md) for the full chronological build log.
 
 ## What's not built (deliberately)
 

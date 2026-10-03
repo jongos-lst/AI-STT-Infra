@@ -12,9 +12,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _fake_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The adapter raises on import if the key is empty.
+    # The adapters raise on import if these keys are empty.
     from app.core.config import settings
     monkeypatch.setattr(settings, "openai_api_key", "sk-test-not-real")
+    monkeypatch.setattr(settings, "openrouter_api_key", "sk-or-test-not-real")
 
 
 @asynccontextmanager

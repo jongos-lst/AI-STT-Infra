@@ -57,10 +57,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.is_dev else [],  # tightened per env at deploy
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Dev: wildcard, no credentials (browsers refuse `credentials + *`).
+    # Non-dev: explicit per-env allowlist from settings.cors_origins.
+    # An empty list = no browser may call the API — the safe failure mode.
+    allow_origins=["*"] if settings.is_dev else settings.cors_origins,
+    allow_credentials=not settings.is_dev,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    max_age=600,
 )
 
 install_error_handlers(app)

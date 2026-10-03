@@ -4,7 +4,8 @@ on:
   workflow_call:
     inputs:
       base_url:
-        required: true
+        required: false
+        default: ""
         type: string
   workflow_dispatch:
     inputs:
@@ -17,6 +18,9 @@ permissions:
 
 jobs:
   playwright:
+    # Skip when called without a URL — the deploy-staging caller's guard
+    # leaves base_url empty until the GCP project is wired up.
+    if: inputs.base_url != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:

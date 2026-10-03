@@ -39,7 +39,6 @@ jobs:
     needs: guard
     if: needs.guard.outputs.configured == 'true' && github.event_name == 'push'
     uses: ./.github/workflows/build.yml
-    secrets: inherit
 
   resolve-tag:
     runs-on: ubuntu-24.04
