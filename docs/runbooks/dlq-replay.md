@@ -15,6 +15,24 @@ Before replaying, find out **why** a task ended up in the DLQ:
 
 If you can't decide in 5 minutes, page the on-call engineer and pull the message into a debugging script instead of replaying blind.
 
+## Terminal task guard
+
+Worker-generated dead letters include `failed_stage=stt|llm`. Their task is
+already terminal `FAILED` after the durable failure budget was exhausted.
+Republishing one does **not** reopen it: workers deliberately acknowledge and
+skip terminal tasks. Fix the underlying provider/input issue, then submit a new
+task through the normal upload flow. Do not bypass the state machine with a raw
+status reset. Inspect the task status before following the replay steps below;
+those steps only apply to broker-dead-lettered tasks that are still nonterminal.
+
+The application writes one terminal outbox event and acknowledges its original
+push. The broker DLQ handles transport/process/database failures separately and can
+also forward ordinary provider failures early because its attempt count is
+best-effort. Those tasks can still be RUNNING; check status rather than assuming
+every DLQ entry is terminal.
+Outbox publication and Pub/Sub delivery are at-least-once, so deduplicate repeated
+DLQ entries by task ID and stage before taking operator action.
+
 ## Steps
 
 ```bash

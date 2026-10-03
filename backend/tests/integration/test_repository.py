@@ -87,3 +87,47 @@ async def test_outbox_enqueue_visible_to_sweeper(db, tenant):
     from app.infra.models import OutboxRow
     rows = (await db.execute(select(OutboxRow).where(OutboxRow.published_at.is_(None)))).scalars().all()
     assert any(r.task_id == t.id and r.topic == "stt.requested" for r in rows)
+
+
+async def test_transitions_persist_updated_at_and_preserve_created_at(db, tenant):
+    repo = TaskRepository(db)
+    task = await repo.create(Task.new(tenant_id=tenant, audio_sha256="a" * 64, audio_bytes=1, filename="x"))
+    await db.commit()
+    created_at = task.created_at
+    updated_at = task.updated_at
+    for status in (TaskStatus.QUEUED, TaskStatus.STT_RUNNING, TaskStatus.STT_DONE, TaskStatus.LLM_RUNNING, TaskStatus.DONE):
+        await repo.update_status(task.id, status)
+        await db.commit()
+        db.expire_all()
+        actual = await repo.get(task.id, tenant_id=tenant)
+        assert actual.created_at == created_at
+        assert actual.updated_at > updated_at
+        updated_at = actual.updated_at
+
+
+async def test_repository_cannot_reopen_terminal_task(db, tenant):
+    from app.core.errors import InvalidStateTransition
+
+    repo = TaskRepository(db)
+    task = await repo.create(Task.new(tenant_id=tenant, audio_sha256="a" * 64, audio_bytes=1, filename="x"))
+    await repo.update_status(task.id, TaskStatus.FAILED, error="permanent failure")
+    await db.commit()
+    with pytest.raises(InvalidStateTransition):
+        await repo.update_status(task.id, TaskStatus.QUEUED)
+
+
+async def test_complete_upload_returns_persisted_timestamp(db, tenant):
+    from app.api.schemas import CompleteUploadRequest
+    from app.api.tasks import complete_upload
+    from app.core.auth import Principal
+
+    repo = TaskRepository(db)
+    task = await repo.create(Task.new(tenant_id=tenant, audio_sha256="a" * 64, audio_bytes=1, filename="x"))
+    await db.commit()
+    response = await complete_upload(task.id, CompleteUploadRequest(), Principal(tenant, "test-user"), db)
+    await db.commit()
+    db.expire_all()
+    persisted = await repo.get(task.id, tenant_id=tenant)
+    assert response.status == TaskStatus.QUEUED
+    assert response.updated_at == persisted.updated_at
+    assert response.created_at == persisted.created_at

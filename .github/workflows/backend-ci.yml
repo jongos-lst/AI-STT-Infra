@@ -91,7 +91,7 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         # Skip end-to-end (needs the full compose stack); repo + DB tests are
         # enough at this layer.
-        run: pytest tests/integration/test_repository.py -v --cov=app --cov-append --cov-report=xml --cov-report=term
+        run: pytest tests/integration/test_repository.py tests/integration/test_workers.py -v --cov=app --cov-append --cov-report=xml --cov-report=term
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

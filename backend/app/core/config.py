@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     pubsub_topic_dlq: str = "tasks.dlq"
     pubsub_sub_stt: str = "stt-worker"
     pubsub_sub_llm: str = "llm-worker"
+    worker_max_failures: int = Field(default=5, ge=1, description="Persisted failure budget per task stage")
 
     gcs_bucket_audio: str = "ai-stt-dev-audio"
     gcs_bucket_transcripts: str = "ai-stt-dev-transcripts"
